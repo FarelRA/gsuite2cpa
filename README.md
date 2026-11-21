@@ -197,6 +197,36 @@ gsuite2cpa list --quota    # add live quota per credential
 gsuite2cpa list --json     # machine-readable
 ```
 
+### `gsuite2cpa verify`
+
+Runs CLIProxyAPI's 1-token inference check against every Antigravity credential, or a subset:
+
+```bash
+gsuite2cpa verify
+gsuite2cpa verify --email user@domain.com
+gsuite2cpa verify --model gemini-3-pro
+```
+
+Requires CLIProxyAPI v8+. A quota or policy rejection is reported as a failed verification; a transient management error is reported separately.
+
+### `gsuite2cpa refresh`
+
+Asks CLIProxyAPI to refresh OAuth tokens now:
+
+```bash
+gsuite2cpa refresh --all
+gsuite2cpa refresh --email user@domain.com
+```
+
+### `gsuite2cpa enable`
+
+Re-enables credentials that were disabled with `delete --disable`:
+
+```bash
+gsuite2cpa enable --email user@domain.com
+gsuite2cpa enable --name antigravity-user@domain.com.json
+```
+
 ### `gsuite2cpa doctor`
 
 Checks the management key, API version, credential count, Antigravity count, and Chrome availability.

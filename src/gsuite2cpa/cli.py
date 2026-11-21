@@ -28,7 +28,7 @@ from .config import (
     save_config,
 )
 from .cpa_api import CpaClient
-from .errors import AuthError, GSuite2CPAError
+from .errors import ApiError, AuthError, GSuite2CPAError, UnsupportedFeatureError
 from .google_auth import (
     LoginOptions,
     find_browser,
@@ -286,6 +286,120 @@ def cmd_list(args: argparse.Namespace) -> int:
     except GSuite2CPAError as exc:
         ui.error(str(exc))
         return 1
+    finally:
+        client.close()
+
+
+def _selected_credentials(
+    credentials: list[dict[str, Any]], args: argparse.Namespace
+) -> list[dict[str, Any]]:
+    emails = {value.strip().lower() for value in (getattr(args, "email", None) or []) if value}
+    names = {value.strip() for value in (getattr(args, "name", None) or []) if value}
+    if not emails and not names:
+        return list(credentials)
+    selected = []
+    for credential in credentials:
+        name = str(credential.get("name") or credential.get("id") or "")
+        email = credential_label(credential).lower()
+        if name in names or email in emails:
+            selected.append(credential)
+    return selected
+
+
+def cmd_verify(args: argparse.Namespace) -> int:
+    client, settings, config_path = _build_client(args)
+    try:
+        credentials = client.antigravity_credentials()
+        selected = _selected_credentials(credentials, args)
+        if not selected:
+            ui.error("No matching Antigravity credentials.")
+            return 1
+
+        ui.header("Verify Antigravity credentials")
+        _print_connection(settings, config_path)
+        failed = 0
+        for credential in selected:
+            name = str(credential.get("name") or credential.get("id") or "")
+            email = credential_label(credential)
+            try:
+                result = client.verify_credential(name, args.model)
+                ok = bool(result.get("verified", result.get("status") == "ok"))
+            except UnsupportedFeatureError as exc:
+                ui.error(str(exc))
+                return 1
+            except ApiError as exc:
+                ui.error(f"{email}: {exc}")
+                failed += 1
+                continue
+            if ok:
+                ui.success(f"{email}")
+            else:
+                failed += 1
+                reason = result.get("error") or result.get("verification_error") or "failed"
+                ui.error(f"{email}: {reason}")
+        ui.header("Summary")
+        ui.kv("Verified", len(selected) - failed)
+        ui.kv("Failed", failed)
+        return 1 if failed else 0
+    finally:
+        client.close()
+
+
+def cmd_refresh(args: argparse.Namespace) -> int:
+    client, settings, config_path = _build_client(args)
+    try:
+        ui.header("Refresh credentials")
+        _print_connection(settings, config_path)
+        if args.all:
+            client.refresh_all()
+            ui.success("Requested a refresh for every credential.")
+            return 0
+
+        credentials = client.antigravity_credentials()
+        selected = _selected_credentials(credentials, args)
+        if not selected:
+            ui.error("No matching Antigravity credentials.")
+            return 1
+        failed = 0
+        for credential in selected:
+            name = str(credential.get("name") or credential.get("id") or "")
+            try:
+                client.refresh_credential(name)
+                ui.success(f"{credential_label(credential)}")
+            except ApiError as exc:
+                failed += 1
+                ui.error(f"{credential_label(credential)}: {exc}")
+        ui.header("Summary")
+        ui.kv("Refreshed", len(selected) - failed)
+        ui.kv("Failed", failed)
+        return 1 if failed else 0
+    finally:
+        client.close()
+
+
+def cmd_enable(args: argparse.Namespace) -> int:
+    client, settings, config_path = _build_client(args)
+    try:
+        credentials = client.antigravity_credentials()
+        selected = _selected_credentials(credentials, args)
+        if not selected:
+            ui.error("No matching Antigravity credentials.")
+            return 1
+        ui.header("Enable credentials")
+        _print_connection(settings, config_path)
+        failed = 0
+        for credential in selected:
+            name = str(credential.get("name") or credential.get("id") or "")
+            try:
+                client.disable_credential(name, False)
+                ui.success(f"{credential_label(credential)}")
+            except ApiError as exc:
+                failed += 1
+                ui.error(f"{credential_label(credential)}: {exc}")
+        ui.header("Summary")
+        ui.kv("Enabled", len(selected) - failed)
+        ui.kv("Failed", failed)
+        return 1 if failed else 0
     finally:
         client.close()
 
@@ -629,6 +743,20 @@ def build_parser() -> argparse.ArgumentParser:
     listing.add_argument("--json", action="store_true", help="Print raw JSON")
     listing.add_argument("--quota", action="store_true", help="Fetch live quota for each credential")
 
+    verify = sub.add_parser("verify", help="Run a 1-token inference check", parents=[common])
+    verify.add_argument("--email", action="append", help="Only this email (repeatable)")
+    verify.add_argument("--name", action="append", help="Only this credential file (repeatable)")
+    verify.add_argument("--model", help="Model used for the check")
+
+    refresh = sub.add_parser("refresh", help="Refresh OAuth tokens", parents=[common])
+    refresh.add_argument("--all", action="store_true", help="Refresh every credential")
+    refresh.add_argument("--email", action="append", help="Only this email (repeatable)")
+    refresh.add_argument("--name", action="append", help="Only this credential file (repeatable)")
+
+    enable = sub.add_parser("enable", help="Re-enable disabled credentials", parents=[common])
+    enable.add_argument("--email", action="append", help="Only this email (repeatable)")
+    enable.add_argument("--name", action="append", help="Only this credential file (repeatable)")
+
     sub.add_parser("doctor", help="Check connectivity and browser availability", parents=[common])
 
     return parser
@@ -645,6 +773,9 @@ def main(argv: list[str] | None = None) -> None:
         "add": cmd_add,
         "delete": cmd_delete,
         "list": cmd_list,
+        "verify": cmd_verify,
+        "refresh": cmd_refresh,
+        "enable": cmd_enable,
         "doctor": cmd_doctor,
     }
 

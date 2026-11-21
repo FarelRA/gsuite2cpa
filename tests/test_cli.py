@@ -12,6 +12,9 @@ def test_parser_builds_and_commands_parse():
     assert parser.parse_args(["delete", "--dry-run"]).dry_run is True
     assert parser.parse_args(["add", "--fast", "--delay", "1"]).fast is True
     assert parser.parse_args(["init", "--no-test"]).test is False
+    assert parser.parse_args(["verify", "--email", "a@example.com"]).command == "verify"
+    assert parser.parse_args(["refresh", "--all"]).all is True
+    assert parser.parse_args(["enable", "--name", "antigravity-a.json"]).command == "enable"
 
 
 def test_version_flag(capsys):

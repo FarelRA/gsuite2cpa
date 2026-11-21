@@ -106,6 +106,22 @@ def test_oauth_callback_409_is_treated_as_already_completing():
 
 
 @responses.activate
+def test_refresh_all_and_verify():
+    responses.add(responses.GET, f"{BASE}/v8/management/credentials", json={"files": []})
+    responses.add(responses.POST, f"{BASE}/v8/management/credentials/refresh", json={"status": "ok"})
+    responses.add(
+        responses.POST,
+        f"{BASE}/v8/management/credentials/verify",
+        json={"status": "ok", "verified": True},
+    )
+    client = make_client()
+    assert client.refresh_all()["status"] == "ok"
+    result = client.verify_credential("antigravity-a.json", "gemini")
+    assert result["verified"] is True
+    client.close()
+
+
+@responses.activate
 def test_cancel_oauth_session():
     responses.add(responses.GET, f"{BASE}/v8/management/credentials", json={"files": []})
     responses.add(responses.DELETE, f"{BASE}/v8/management/oauth/session", json={"status": "ok"})

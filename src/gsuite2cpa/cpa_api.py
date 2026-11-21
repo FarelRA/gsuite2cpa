@@ -288,6 +288,14 @@ class CpaClient:
         )
         return data if isinstance(data, dict) else None
 
+    def refresh_all(self) -> dict[str, Any]:
+        path = self._path(
+            "/v8/management/credentials/refresh",
+            "/v0/management/auth-files/refresh",
+        )
+        data = self._json("POST", path, json_body={"all": True}, safe=False)
+        return data if isinstance(data, dict) else {}
+
     def verify_credential(self, name: str, model: str | None = None) -> dict[str, Any]:
         if self.detect_version() != "v8":
             raise UnsupportedFeatureError(

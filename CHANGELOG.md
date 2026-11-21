@@ -6,6 +6,12 @@ All notable changes to this project are documented here. The format follows
 
 ## [1.0.1] - 2026-11-21
 
+### Added
+
+- `verify`, `refresh`, and `enable` subcommands with `--email` / `--name`
+  filters for targeted operations.
+- `CpaClient.refresh_all()` and broader v8 credential controls.
+
 ### Fixed
 
 - DrissionPage 4.1.x compatibility: CSS attribute selectors now use an explicit
