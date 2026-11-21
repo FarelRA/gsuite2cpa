@@ -35,6 +35,14 @@ class FakeClient:
     def get_credential(self, name):
         return self.credentials.get(name)
 
+    def find_credential_by_email(self, email):
+        target = email.lower()
+        for name, cred in self.credentials.items():
+            value = str(cred.get("email") or "")
+            if value.lower() == target or name.lower() == f"antigravity-{target}.json":
+                return cred
+        return None
+
     def verify_credential(self, name, model=None):
         self.verified.append(name)
         return {"status": "ok", "verified": True}
@@ -103,7 +111,12 @@ def test_attempt_account_cancels_when_browser_fails(monkeypatch):
 def test_attempt_account_uses_expected_file_when_auth_id_missing(monkeypatch):
     client = FakeClient(
         status={"status": "ok"},
-        credentials={"antigravity-user@example.com.json": {"name": "antigravity-user@example.com.json"}},
+        credentials={
+            "antigravity-user@example.com.json": {
+                "name": "antigravity-user@example.com.json",
+                "email": "user@example.com",
+            }
+        },
     )
     monkeypatch.setattr("gsuite2cpa.cli.login", lambda *a, **k: type("R", (), {"code": "code-1"})())
     auth_id = _attempt_account(client, account(), args())
@@ -122,3 +135,18 @@ def test_account_file_default_is_relative_to_cwd():
     from gsuite2cpa.cli import _choose_account_file
 
     assert Path(_choose_account_file(None)).name in {"accounts.txt", "akun.txt"}
+
+
+def test_attempt_account_finds_lowercased_email(monkeypatch):
+    client = FakeClient(
+        status={"status": "ok"},
+        credentials={
+            "antigravity-shaawnapalma@onprim.xyz.json": {
+                "name": "antigravity-shaawnapalma@onprim.xyz.json",
+                "email": "shaawnapalma@onprim.xyz",
+            }
+        },
+    )
+    monkeypatch.setattr("gsuite2cpa.cli.login", lambda *a, **k: type("R", (), {"code": "code-1"})())
+    auth_id = _attempt_account(client, account("ShaawnaPalma@onprim.xyz"), args())
+    assert auth_id == "antigravity-shaawnapalma@onprim.xyz.json"

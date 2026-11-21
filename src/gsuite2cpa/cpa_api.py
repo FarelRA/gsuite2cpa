@@ -16,6 +16,7 @@ from typing import Any
 import requests
 
 from . import __version__
+from .accounts import email_from_auth_id
 from .errors import ApiError, AuthError, UnsupportedFeatureError
 
 USER_AGENT = f"gsuite2cpa/{__version__} (+https://github.com/mhiqrambg/gsuite2cpa)"
@@ -260,6 +261,24 @@ class CpaClient:
                 return cred
         return None
 
+    def find_credential_by_email(self, email: str) -> dict[str, Any] | None:
+        """Find a credential by email, ignoring case.
+
+        CLIProxyAPI saves Antigravity files as ``antigravity-<email>.json`` and
+        lowercases the local part on some builds, so an exact filename probe is
+        not reliable.
+        """
+        target = email.strip().lower()
+        if not target:
+            return None
+        for cred in self.list_credentials():
+            value = credential_email(cred)
+            if not value:
+                value = email_from_auth_id(str(cred.get("name") or ""))
+            if value and value.lower() == target:
+                return cred
+        return None
+
     def delete_credential(self, name: str) -> None:
         path = self._path(
             "/v8/management/credentials", "/v0/management/auth-files"
@@ -484,7 +503,7 @@ def credential_email(cred: dict[str, Any]) -> str | None:
     email = cred.get("email")
     if isinstance(email, str) and "@" in email:
         return email
-    return None
+    return email_from_auth_id(str(cred.get("name") or cred.get("id") or ""))
 
 
 def auth_index(cred: dict[str, Any]) -> str | None:

@@ -106,6 +106,28 @@ def test_oauth_callback_409_is_treated_as_already_completing():
 
 
 @responses.activate
+def test_find_credential_by_email_is_case_insensitive():
+    responses.add(
+        responses.GET,
+        f"{BASE}/v8/management/credentials",
+        json={
+            "files": [
+                {
+                    "name": "antigravity-shaawnapalma@onprim.xyz.json",
+                    "email": "shaawnapalma@onprim.xyz",
+                    "provider": "antigravity",
+                }
+            ]
+        },
+    )
+    client = make_client()
+    found = client.find_credential_by_email("ShaawnaPalma@onprim.xyz")
+    assert found["name"] == "antigravity-shaawnapalma@onprim.xyz.json"
+    assert client.find_credential_by_email("missing@example.com") is None
+    client.close()
+
+
+@responses.activate
 def test_refresh_all_and_verify():
     responses.add(responses.GET, f"{BASE}/v8/management/credentials", json={"files": []})
     responses.add(responses.POST, f"{BASE}/v8/management/credentials/refresh", json={"status": "ok"})

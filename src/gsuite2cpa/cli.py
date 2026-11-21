@@ -468,10 +468,10 @@ def _attempt_account(
         )
 
     if not auth_id:
-        # Some older builds omit auth_id; verify the expected file exists.
-        expected = f"antigravity-{account.email}.json"
-        if client.get_credential(expected):
-            auth_id = expected
+        # Some builds omit auth_id and lowercase the saved filename.
+        credential = client.find_credential_by_email(account.email)
+        if credential:
+            auth_id = str(credential.get("name") or credential.get("id") or "")
     if not auth_id:
         raise AuthError(
             "CLIProxyAPI reported success but did not return a credential name. "
