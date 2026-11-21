@@ -1,0 +1,68 @@
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[project]
+name = "gsuite2cpa"
+version = "1.0.0"
+description = "Bulk-add Google Workspace accounts to CLIProxyAPI's Antigravity provider"
+readme = "README.md"
+requires-python = ">=3.10"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "gsuite2cpa contributors" }]
+keywords = ["cliproxyapi", "antigravity", "google", "workspace", "oauth", "cli"]
+classifiers = [
+  "Development Status :: 5 - Production/Stable",
+  "Environment :: Console",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3.14",
+  "Topic :: Utilities",
+]
+dependencies = [
+  "DrissionPage>=4.1.1,<5",
+  "requests>=2.32,<3",
+  "PySocks>=1.7,<2",
+  "pyotp>=2.9,<3",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.0",
+  "pytest-cov>=5.0",
+  "responses>=0.25",
+  "ruff>=0.6",
+]
+
+[project.scripts]
+gsuite2cpa = "gsuite2cpa.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/mhiqrambg/gsuite2cpa"
+Issues = "https://github.com/mhiqrambg/gsuite2cpa/issues"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/gsuite2cpa"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+ignore = ["E501"]
+
+[tool.coverage.run]
+source = ["gsuite2cpa"]
