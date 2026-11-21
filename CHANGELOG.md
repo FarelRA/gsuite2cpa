@@ -4,6 +4,21 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [1.0.1] - 2026-11-21
+
+### Fixed
+
+- DrissionPage 4.1.x compatibility: CSS attribute selectors now use an explicit
+  `css:` prefix and unquoted values, so the password/TOTP fields are found.
+- JavaScript helpers now pass lists as JSON strings; DrissionPage rejects raw
+  Python lists as script arguments.
+- Submit buttons are clicked on the actual `<button>` element instead of a
+  wrapper `<div>`, with an Enter-key fallback.
+- Hidden duplicate inputs (such as a stale `#identifierId`) are ignored when
+  looking for a visible field.
+- A Google image/audio CAPTCHA is detected immediately and reported with an
+  actionable proxy hint instead of looping until the timeout.
+
 ## [1.0.0] - 2026-11-21
 
 ### Added

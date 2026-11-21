@@ -289,6 +289,16 @@ Pass `--yes` (after a `--dry-run` review).
 **Headless Chrome fails or loops**
 Google aggressively blocks headless browsers. Use the default visible window, or run the tool on a desktop/VM with a display (Xvfb works).
 
+**Google shows “Type the text you hear or see” / an image CAPTCHA**
+Google is challenging the login because of the IP or browser reputation. This is not a wrong password and the tool fails fast instead of retrying. Run it from a residential connection, or give Chrome a residential/mobile proxy:
+
+```bash
+gsuite2cpa add --browser-proxy 'http://user:pass@host:port' \
+                --oauth-proxy  'http://user:pass@host:port'
+```
+
+`--browser-proxy` covers the Google login page; `--oauth-proxy` makes CLIProxyAPI use the same egress for the token and project lookup. If only some accounts are challenged, they stay in the account file for a later retry.
+
 ## Development
 
 ```bash

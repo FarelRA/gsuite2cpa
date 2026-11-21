@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 
 from gsuite2cpa.errors import AuthError
-from gsuite2cpa.google_auth import extract_code_from_url
+from gsuite2cpa.google_auth import _detect_captcha, extract_code_from_url
 
 
 def test_extract_code():
@@ -31,3 +31,21 @@ def test_extract_code_surfaces_oauth_error():
 def test_extract_code_returns_none_for_unrelated_url():
     assert extract_code_from_url("https://accounts.google.com/signin") is None
     assert extract_code_from_url("") is None
+
+
+class _BodyPage:
+    def __init__(self, body: str):
+        self.body = body
+
+    def run_js(self, script: str):
+        return self.body
+
+
+def test_detect_captcha_raises_clear_error():
+    page = _BodyPage("Enter your password\nType the text you hear or see")
+    with pytest.raises(AuthError, match="CAPTCHA"):
+        _detect_captcha(page)
+
+
+def test_detect_captcha_ignores_normal_page():
+    _detect_captcha(_BodyPage("Welcome\nEnter your password"))

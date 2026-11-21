@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import contextlib
 import glob
+import json
 import os
 import random
 import shutil
@@ -27,6 +28,35 @@ from .config import CHROME_ARGS, CHROME_IGNORE_DEFAULT_ARGS, TIMING
 from .errors import AuthError, BrowserError, LoginRequiredError
 
 TEMP_PREFIX = "gs2cpa_"
+
+# DrissionPage treats a bare selector containing ``[...]`` as text, so CSS
+# locators are always prefixed explicitly. Attribute values are unquoted to
+# keep the 4.x parser happy.
+EMAIL_FIELDS = [
+    "#identifierId",
+    "css:input[type=email]",
+    "css:input[name=identifier]",
+]
+PASSWORD_FIELDS = [
+    "css:input[type=password]",
+    "css:input[name=Passwd]",
+]
+TOTP_FIELDS = [
+    "css:input[name=totpPin]",
+    "#totpPin",
+    "css:input[autocomplete=one-time-code]",
+]
+
+NEXT_BUTTONS = [
+    "tag:button@@text():Next",
+    "tag:button@@text():Berikutnya",
+    "tag:button@@text():Continue",
+    "tag:button@@text():Lanjutkan",
+    "css:button[type=submit]",
+]
+EMAIL_NEXT_BUTTONS = ["css:#identifierNext button", *NEXT_BUTTONS]
+PASSWORD_NEXT_BUTTONS = ["css:#passwordNext button", *NEXT_BUTTONS]
+TOTP_NEXT_BUTTONS = ["css:#totpNext button", *NEXT_BUTTONS]
 
 # Text that means Google needs a human, not another selector click.
 _BLOCKING_TEXT = (
@@ -252,8 +282,14 @@ def _find_element(page: object, locators: list[str], timeout: float = 3.0) -> ob
             element = page.ele(locator, timeout=timeout)  # type: ignore[attr-defined]
         except Exception:
             continue
-        if element:
-            return element
+        if not element:
+            continue
+        try:
+            if not element.run_js("return !!(this.offsetWidth || this.offsetHeight || this.getClientRects().length);"):  # type: ignore[attr-defined]
+                continue
+        except Exception:
+            pass
+        return element
     return None
 
 
@@ -266,6 +302,11 @@ def _find_and_click(page: object, locators: list[str], timeout: float = 2.0) -> 
         if not element:
             continue
         try:
+            if element.run_js("return this.offsetParent !== null;"):  # type: ignore[attr-defined]
+                element.scroll_into_view()  # type: ignore[attr-defined]
+        except Exception:
+            pass
+        try:
             element.click()
             return True
         except Exception:
@@ -275,6 +316,68 @@ def _find_and_click(page: object, locators: list[str], timeout: float = 2.0) -> 
             except Exception:
                 continue
     return False
+
+
+def _js_click_button(page: object, labels: list[str]) -> bool:
+    """Click a visible button by its visible label using JavaScript."""
+    try:
+        clicked = page.run_js(  # type: ignore[attr-defined]
+            """
+            const wanted = JSON.parse(arguments[0]).map(value => value.toLowerCase());
+            const candidates = Array.from(document.querySelectorAll(
+                'button, div[role="button"], input[type="submit"], a[role="button"]'
+            )).filter(el => el.offsetParent !== null && !el.disabled);
+            for (const label of wanted) {
+                const el = candidates.find(node => {
+                    const text = (node.innerText || node.value || node.textContent || '')
+                        .trim().toLowerCase();
+                    return text === label;
+                });
+                if (el) {
+                    el.scrollIntoView({block: 'center'});
+                    el.focus();
+                    el.click();
+                    return label;
+                }
+            }
+            return null;
+            """,
+            json.dumps([value.lower() for value in labels]),
+        )
+        return bool(clicked)
+    except Exception:
+        return False
+
+
+def _press_enter(page: object, element: object | None = None) -> bool:
+    """Submit the focused field with a real Enter keystroke."""
+    if element is not None:
+        with contextlib.suppress(Exception):
+            element.click()  # type: ignore[attr-defined]
+    try:
+        from DrissionPage._units.actions import Keys
+
+        page.actions.type(Keys.ENTER)  # type: ignore[attr-defined]
+        return True
+    except Exception:
+        pass
+    try:
+        page.run_js(  # type: ignore[attr-defined]
+            """
+            const el = document.activeElement;
+            if (!el) return false;
+            for (const type of ['keydown', 'keypress', 'keyup']) {
+                el.dispatchEvent(new KeyboardEvent(type, {
+                    key: 'Enter', code: 'Enter', keyCode: 13, which: 13,
+                    bubbles: true, cancelable: true
+                }));
+            }
+            return true;
+            """
+        )
+        return True
+    except Exception:
+        return False
 
 
 def _element_value(element: object) -> str:
@@ -357,7 +460,7 @@ def _google_error_text(page: object) -> str | None:
     try:
         result = page.run_js(  # type: ignore[attr-defined]
             """
-            const keywords = arguments[0];
+            const keywords = JSON.parse(arguments[0]);
             const selectors = 'div[aria-live="assertive"], div[jsname="B1fAeb"], .Ekjuhf, .dEOOab, .o6cuMc, [role="alert"]';
             for (const el of document.querySelectorAll(selectors)) {
                 const text = (el.innerText || el.textContent || '').trim();
@@ -368,7 +471,7 @@ def _google_error_text(page: object) -> str | None:
             }
             return null;
             """,
-            list(_ERROR_KEYWORDS),
+            json.dumps(list(_ERROR_KEYWORDS)),
         )
         return str(result).strip() if result else None
     except Exception:
@@ -378,13 +481,18 @@ def _google_error_text(page: object) -> str | None:
 def _submit(page: object, locators: list[str]) -> bool:
     if _find_and_click(page, locators, timeout=1.5):
         return True
-    try:
-        from DrissionPage._units.actions import Keys
-
-        page.actions.type(Keys.ENTER)  # type: ignore[attr-defined]
+    if _js_click_button(
+        page, ["next", "berikutnya", "lanjutkan", "continue", "sign in", "masuk"]
+    ):
         return True
-    except Exception:
-        return False
+    return _press_enter(page)
+
+
+def _submit_field(page: object, element: object, locators: list[str]) -> bool:
+    """Submit a field by clicking its button, falling back to Enter."""
+    if _find_and_click(page, locators, timeout=1.5):
+        return True
+    return _press_enter(page, element)
 
 
 def _handle_totp(page: object, secret: str | None) -> bool:
@@ -392,15 +500,11 @@ def _handle_totp(page: object, secret: str | None) -> bool:
     named_totp = "totp" in url
     element = _find_element(
         page,
-        [
-            'input[name="totpPin"]',
-            "#totpPin",
-            'input[autocomplete="one-time-code"]',
-        ],
+        TOTP_FIELDS,
         timeout=0.8,
     )
     if element is None and named_totp:
-        element = _find_element(page, ['input[type="tel"]'], timeout=0.5)
+        element = _find_element(page, ["css:input[type=tel]"], timeout=0.5)
     if element is None:
         return False
     try:
@@ -429,7 +533,7 @@ def _handle_totp(page: object, secret: str | None) -> bool:
         raise LoginRequiredError(f"Invalid TOTP secret: {exc}") from exc
 
     _force_input(page, element, code, "two-factor code")
-    _submit(page, ["#totpNext", 'button[type="submit"]', "tag:button@@text():Next"])
+    _submit_field(page, element, TOTP_NEXT_BUTTONS)
     time.sleep(2.0)
     error = _google_error_text(page)
     if error:
@@ -469,12 +573,13 @@ def _handle_account_chooser(page: object, email: str, password: str) -> bool:
         return _click_use_another_account(page)
 
     time.sleep(1.5)
-    password_field = _find_element(page, ['input[type="password"]', 'input[name="Passwd"]'], timeout=1.5)
+    password_field = _find_element(page, PASSWORD_FIELDS, timeout=1.5)
     if password_field:
         _force_input(page, password_field, password, "password")
-        _submit(
+        _submit_field(
             page,
-            ["#passwordNext", 'button[type="submit"]', "tag:button@@text():Next"],
+            password_field,
+            PASSWORD_NEXT_BUTTONS,
         )
         time.sleep(2.0)
     return True
@@ -522,7 +627,7 @@ def _handle_tos(page: object) -> bool:
 def _handle_unverified_app(page: object) -> bool:
     clicked = page.run_js(  # type: ignore[attr-defined]
         """
-        const keywords = arguments[0];
+        const keywords = JSON.parse(arguments[0]);
         const candidates = Array.from(document.querySelectorAll('button, div[role="button"], a'))
             .filter(el => el.offsetParent !== null);
         for (const keyword of keywords) {
@@ -531,7 +636,7 @@ def _handle_unverified_app(page: object) -> bool:
         }
         return null;
         """,
-        list(UNVERIFIED_APP_KEYWORDS),
+        json.dumps(list(UNVERIFIED_APP_KEYWORDS)),
     )
     return bool(clicked)
 
@@ -539,15 +644,15 @@ def _handle_unverified_app(page: object) -> bool:
 def _click_consent(page: object) -> str | None:
     return page.run_js(  # type: ignore[attr-defined]
         """
-        const actions = arguments[0];
-        const negatives = arguments[1];
+        const actions = JSON.parse(arguments[0]);
+        const negatives = JSON.parse(arguments[1]);
 
         document.querySelectorAll('input[type="checkbox"]:not(:checked)')
             .forEach(cb => cb.click());
 
         const priority = [
-            '#submit_approve_access button', '#submit_approve_access', '#confirm',
-            '#next button', '#next', 'input[type="submit"]'
+            '#submit_approve_access button', '#confirm button', '#next button',
+            'input[type="submit"]', '#submit_approve_access', '#confirm', '#next'
         ];
         for (const selector of priority) {
             const el = document.querySelector(selector);
@@ -569,8 +674,8 @@ def _click_consent(page: object) -> str | None:
         }
         return null;
         """,
-        list(_ACTION_KEYWORDS),
-        list(_NEGATIVE_KEYWORDS),
+        json.dumps(list(_ACTION_KEYWORDS)),
+        json.dumps(list(_NEGATIVE_KEYWORDS)),
     )
 
 
@@ -605,6 +710,35 @@ def _handle_recovery_prompt(page: object) -> bool:
         time.sleep(1.5)
         return True
     return False
+
+
+_CAPTCHA_MARKERS = (
+    "type the text you hear or see",
+    "enter the characters you see",
+    "please enter the characters you see",
+    "verify you're not a robot",
+    "verify you’re not a robot",
+    "recaptcha",
+)
+
+
+def _detect_captcha(page: object) -> None:
+    """Fail fast when Google requires an image/audio CAPTCHA.
+
+    CAPTCHA risk is driven by IP and browser reputation; refusing to loop is
+    both faster and safer than submitting the password repeatedly.
+    """
+    try:
+        body = str(page.run_js("return document.body ? document.body.innerText : '';") or "").lower()  # type: ignore[attr-defined]
+    except Exception:
+        return
+    if any(marker in body for marker in _CAPTCHA_MARKERS):
+        raise LoginRequiredError(
+            "Google is showing a CAPTCHA for this login. That is an IP/browser "
+            "trust check, not a wrong password. Run the tool from a residential "
+            "connection or pass a residential/mobile proxy with --browser-proxy "
+            "(and --oauth-proxy for CLIProxyAPI's token exchange)."
+        )
 
 
 def _detect_blocking_page(page: object) -> None:
@@ -668,6 +802,8 @@ def _consent_loop(
         if code:
             return code
 
+        _detect_captcha(page)
+
         url = _safe_url(page)
         if not url:
             time.sleep(1)
@@ -717,27 +853,23 @@ def _consent_loop(
                 return code
             continue
 
-        password_field = _find_element(page, ['input[type="password"]', 'input[name="Passwd"]'], timeout=0.4)
+        password_field = _find_element(page, PASSWORD_FIELDS, timeout=0.4)
         if password_field:
             _force_input(page, password_field, password, "password")
-            _submit(
+            _submit_field(
                 page,
-                ["#passwordNext", 'button[type="submit"]', "tag:button@@text():Next"],
+                password_field,
+                PASSWORD_NEXT_BUTTONS,
             )
             time.sleep(timing["after_password_next"])
             continue
 
-        email_field = _find_element(page, ['#identifierId', 'input[type="email"]', 'input[name="identifier"]'], timeout=0.4)
+        email_field = _find_element(page, EMAIL_FIELDS, timeout=0.4)
         if email_field:
             _force_input(page, email_field, email, "email address")
             _submit(
                 page,
-                [
-                    "#identifierNext",
-                    'button[type="submit"]',
-                    "tag:button@@text():Next",
-                    "tag:button@@text():Berikutnya",
-                ],
+                EMAIL_NEXT_BUTTONS,
             )
             time.sleep(timing["after_email_next"])
             continue
@@ -823,18 +955,13 @@ def login(
             return LoginResult(code=code, url=_safe_url(page))
 
         # Some sessions land directly on the password or account chooser page.
-        email_field = _find_element(page, ['#identifierId', 'input[type="email"]', 'input[name="identifier"]'], timeout=8.0)
+        email_field = _find_element(page, EMAIL_FIELDS, timeout=8.0)
         if email_field:
             _force_input(page, email_field, email, "email address")
             time.sleep(timing["after_email_input"])
             if not _submit(
                 page,
-                [
-                    "#identifierNext",
-                    'button[type="submit"]',
-                    "tag:button@@text():Next",
-                    "tag:button@@text():Berikutnya",
-                ],
+                EMAIL_NEXT_BUTTONS,
             ):
                 raise BrowserError("Google's email Next button was not found")
             time.sleep(timing["after_email_next"])
@@ -855,7 +982,7 @@ def login(
                     return LoginResult(code=code, url=_safe_url(page))
                 continue
 
-            password_field = _find_element(page, ['input[type="password"]', 'input[name="Passwd"]'], timeout=0.5)
+            password_field = _find_element(page, PASSWORD_FIELDS, timeout=0.5)
             if password_field:
                 break
 
@@ -870,12 +997,7 @@ def login(
             time.sleep(timing["after_password"])
             if not _submit(
                 page,
-                [
-                    "#passwordNext",
-                    'button[type="submit"]',
-                    "tag:button@@text():Next",
-                    "tag:button@@text():Berikutnya",
-                ],
+                PASSWORD_NEXT_BUTTONS,
             ):
                 raise BrowserError("Google's password Next button was not found")
             time.sleep(timing["after_password_next"])

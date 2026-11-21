@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "gsuite2cpa"
-version = "1.0.0"
+version = "1.0.1"
 description = "Bulk-add Google Workspace accounts to CLIProxyAPI's Antigravity provider"
 readme = "README.md"
 requires-python = ">=3.10"
