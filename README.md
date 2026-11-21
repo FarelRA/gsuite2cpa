@@ -110,6 +110,8 @@ For each account the tool:
 
 Successful lines leave the file. Failed lines stay for the next run.
 
+> **Tip:** use `gsuite2cpa add --verify` for a new batch. It performs a 1-token inference after each login, so accounts that Google has blocked at the service level (for example `403 TOS_VIOLATION`) are reported immediately instead of being imported and only discovered later.
+
 ### 4. Remove exhausted accounts
 
 ```bash
